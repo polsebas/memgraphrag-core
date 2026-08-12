@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "memgraphrag-core"
+version = "0.1.0"
+description = "MemGraphRAG core: three-layer global memory (M_ont, M_fac, M_pas) with memory-guided PPR retrieval"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Pablo" }]
+dependencies = [
+    "pydantic>=2.0",
+    "networkx>=3.0",
+    "numpy>=1.26",
+    "agno>=2.0",
+]
+
+[project.optional-dependencies]
+chroma = [
+    "chromadb>=0.5",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "chromadb>=0.5",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["memgraphrag_core"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

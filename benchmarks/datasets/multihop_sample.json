@@ -1,0 +1,36 @@
+[
+  {
+    "id": "q1",
+    "query": "What wine does the winery located in Mendoza produce?",
+    "ground_truth_fact_ids": [
+      "catena zapata--produces--gran enemigo",
+      "catena zapata--located_in--mendoza"
+    ],
+    "ground_truth_passage_ids": ["pas_001", "pas_002"],
+    "hops": 2
+  },
+  {
+    "id": "q2",
+    "query": "Where is Catena Zapata winery located?",
+    "ground_truth_fact_ids": ["catena zapata--located_in--mendoza"],
+    "ground_truth_passage_ids": ["pas_001"],
+    "hops": 1
+  },
+  {
+    "id": "q3",
+    "query": "Which wine is produced by Catena Zapata?",
+    "ground_truth_fact_ids": ["catena zapata--produces--gran enemigo"],
+    "ground_truth_passage_ids": ["pas_002"],
+    "hops": 1
+  },
+  {
+    "id": "q4",
+    "query": "Find the wine linked to the winery in the Mendoza region of Argentina.",
+    "ground_truth_fact_ids": [
+      "catena zapata--produces--gran enemigo",
+      "catena zapata--located_in--mendoza"
+    ],
+    "ground_truth_passage_ids": ["pas_001", "pas_002"],
+    "hops": 2
+  }
+]
