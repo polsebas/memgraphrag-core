@@ -19,6 +19,11 @@ from memgraphrag_core.domain.models import (
 )
 from memgraphrag_core.interfaces.graph_store import BaseGraphStore, GraphEdge, GraphNode
 from memgraphrag_core.interfaces.vector_store import BaseVectorStore, VectorSearchResult
+from memgraphrag_core.retrieval.direct_passage_access import (
+    cited_passage_ids,
+    merge_writer_omitted,
+    select_direct_passages,
+)
 from memgraphrag_core.retrieval.ppr_engine import (
     DEFAULT_LAYER_WEIGHTS,
     DEFAULT_RELATION_WEIGHTS,
@@ -52,6 +57,14 @@ class RetrievalResult(BaseModel):
         default_factory=dict,
         description="Fused S_final scores for selected fact_/pas_ ids",
     )
+    direct_passages: List[Passage] = Field(
+        default_factory=list,
+        description="Raw M_pas hits independent of the writer (MemoryTax)",
+    )
+    writer_omitted_passage_ids: List[str] = Field(
+        default_factory=list,
+        description="Direct M_pas hits that no accepted fact cites",
+    )
 
 
 class MemoryGuidedRetriever:
@@ -68,6 +81,7 @@ class MemoryGuidedRetriever:
         layer_weights: Optional[Mapping[str, float]] = None,
         relation_weights: Optional[Mapping[str, float]] = None,
         alpha_hybrid: float = 0.6,
+        direct_pas_k: int = 5,
         ppr_calculator: Optional[LayeredPPRCalculator] = None,
         reranker: Optional[HybridReranker] = None,
     ) -> None:
@@ -77,6 +91,7 @@ class MemoryGuidedRetriever:
         self.alpha_ppr = alpha_ppr
         self.top_k_passages = top_k_passages
         self.top_k_facts = top_k_facts
+        self.direct_pas_k = direct_pas_k
 
         lw = dict(DEFAULT_LAYER_WEIGHTS)
         if layer_weights:
@@ -106,10 +121,14 @@ class MemoryGuidedRetriever:
     async def retrieve(
         self, query: str, *, as_of: Optional[datetime] = None
     ) -> RetrievalResult:
+        pas_k = max(5, self.top_k_passages, self.direct_pas_k)
         ont_hits, fac_hits, pas_hits = await asyncio.gather(
             self.vector_store.search_similarity(query, k=5, namespace=LAYER_M_ONT),
             self.vector_store.search_similarity(query, k=5, namespace=LAYER_M_FAC),
-            self.vector_store.search_similarity(query, k=5, namespace=LAYER_M_PAS),
+            self.vector_store.search_similarity(query, k=pas_k, namespace=LAYER_M_PAS),
+        )
+        direct_passages = select_direct_passages(
+            pas_hits, self.memory_state.passages, k=self.direct_pas_k
         )
 
         ppr_scores = await self.ppr_calculator.run(
@@ -123,7 +142,7 @@ class MemoryGuidedRetriever:
             as_of=as_of,
         )
         if not ppr_scores:
-            return await self._execute_vector_fallback(query, pas_hits)
+            return await self._execute_vector_fallback(query, pas_hits, direct_passages)
 
         suppressed = suppressed_fact_keys(self.memory_state, as_of)
         hidden_passages = exclusive_suppressed_passages(self.memory_state, as_of)
@@ -194,6 +213,12 @@ class MemoryGuidedRetriever:
         retrieved_facts = self._facts_grounded_in_passages(
             retrieved_facts, retrieved_passages
         )
+        ranked_prefix = retrieved_passages[: self.top_k_passages]
+        retrieved_passages, omitted_ids = merge_writer_omitted(
+            ranked_prefix,
+            direct_passages,
+            cited_passage_ids(self.memory_state.facts),
+        )
 
         fact_score_by_id = {item.item_id: item.score for item in ranked_facts}
         pas_score_by_id = {item.item_id: item.score for item in ranked_passages}
@@ -217,7 +242,7 @@ class MemoryGuidedRetriever:
 
         return RetrievalResult(
             query=query,
-            passages=retrieved_passages[: self.top_k_passages],
+            passages=retrieved_passages,
             facts=retrieved_facts[: self.top_k_facts],
             subgraph={
                 "nodes": [n.model_dump() for n in nodes_obj],
@@ -226,27 +251,42 @@ class MemoryGuidedRetriever:
             retrieval_mode="hybrid_rerank",
             node_scores=ppr_scores,
             hybrid_scores=hybrid_scores,
+            direct_passages=direct_passages,
+            writer_omitted_passage_ids=omitted_ids,
         )
 
     async def _execute_vector_fallback(
-        self, query: str, pas_hits: List[VectorSearchResult]
+        self,
+        query: str,
+        pas_hits: List[VectorSearchResult],
+        direct_passages: Optional[List[Passage]] = None,
     ) -> RetrievalResult:
         hits = pas_hits or await self.vector_store.search_similarity(
-            query, k=self.top_k_passages, namespace=LAYER_M_PAS
+            query, k=max(self.top_k_passages, self.direct_pas_k), namespace=LAYER_M_PAS
         )
         passages = [
             self.memory_state.passages[h.id]
             for h in hits
             if h.id in self.memory_state.passages
         ]
+        direct = direct_passages if direct_passages is not None else select_direct_passages(
+            hits, self.memory_state.passages, k=self.direct_pas_k
+        )
+        merged, omitted_ids = merge_writer_omitted(
+            passages[: self.top_k_passages],
+            direct,
+            cited_passage_ids(self.memory_state.facts),
+        )
         return RetrievalResult(
             query=query,
-            passages=passages,
+            passages=merged,
             facts=[],
             subgraph={"nodes": [], "edges": []},
             retrieval_mode="vector_fallback",
             node_scores={},
             hybrid_scores={},
+            direct_passages=direct,
+            writer_omitted_passage_ids=omitted_ids,
         )
 
     @staticmethod
