@@ -21,6 +21,7 @@ Rules:
 4. Prefer canonical entity surface forms without legal suffixes when possible.
 5. Return both schemas (type-level) and facts (instance-level).
 6. Infer types and relations from the input domain; do not assume a fixed ontology.
+7. Set fact category to one of DECLARATIVE (default), HARD_CONSTRAINT (non-negotiable limit, e.g. budget cap), REJECTED_OPTION (explicitly discarded option, e.g. a Miami layover refused for lack of a transit visa), or TOOL_FAILURE (operational error as observation, e.g. HTTP 409 from a booking API). Keep rejections and failures as facts. Do not drop them.
 
 Few-shot example (illustrative only; adapt types/relations to the user's text)
 ---

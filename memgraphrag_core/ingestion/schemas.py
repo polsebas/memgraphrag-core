@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from typing import List
+from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from memgraphrag_core.domain.models import FactCategory, coerce_fact_category
 
 
 class ExtractedSchema(BaseModel):
@@ -23,6 +25,14 @@ class ExtractedFact(BaseModel):
     relation: str
     tail_entity: str
     tail_type: str
+    category: FactCategory = FactCategory.DECLARATIVE
+    ttl_seconds: Optional[int] = Field(default=None, ge=0)
+    is_invalidated: bool = False
+
+    @field_validator("category", mode="before")
+    @classmethod
+    def _coerce_category(cls, value: object) -> object:
+        return coerce_fact_category(value)
 
 
 class DocumentExtractionResult(BaseModel):

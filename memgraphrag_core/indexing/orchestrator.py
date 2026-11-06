@@ -158,11 +158,7 @@ class IndexingOrchestrator:
                 GraphNode(
                     id=fid,
                     label=NODE_FACT,
-                    properties={
-                        "head": fact.head_entity,
-                        "relation": fact.relation,
-                        "tail": fact.tail_entity,
-                    },
+                    properties=fact.graph_properties(),
                 )
             )
             await self.graph_store.add_edge(

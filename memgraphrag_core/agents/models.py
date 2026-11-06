@@ -3,9 +3,9 @@
 from enum import Enum
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
-from memgraphrag_core.domain.models import ConflictType
+from memgraphrag_core.domain.models import ConflictType, FactCategory, coerce_fact_category
 
 
 class ExtractedTriple(BaseModel):
@@ -20,6 +20,14 @@ class ExtractedTriple(BaseModel):
     evidence_span: Optional[str] = Field(
         default=None, description="Text span that supports the extraction"
     )
+    category: FactCategory = FactCategory.DECLARATIVE
+    ttl_seconds: Optional[int] = Field(default=None, ge=0)
+    is_invalidated: bool = False
+
+    @field_validator("category", mode="before")
+    @classmethod
+    def _coerce_category(cls, value: object) -> object:
+        return coerce_fact_category(value)
 
 
 class ExtractionResult(BaseModel):

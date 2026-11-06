@@ -1,10 +1,10 @@
 """Pydantic V2 models for the three-layer global memory (M_ont, M_fac, M_pas)."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # Paper layers: M_pas (evidence), M_ont (schemas), M_fac (grounded facts).
 LAYER_M_PAS = "M_pas"
@@ -23,6 +23,37 @@ EDGE_INSTANTIATES = "INSTANTIATES"
 EDGE_EVIDENCE_IN = "EVIDENCE_IN"
 # Pre-unification alias; weighted like EVIDENCE_IN for old graphs only.
 EDGE_SUPPORTED_BY = "SUPPORTED_BY"
+
+
+class FactCategory(str, Enum):
+    """Process-aware label for a fact stored in M_fac.
+
+    Declarative facts are the usual domain triples. The other three values
+    keep process information that a summary would drop: hard limits, explicit
+    rejections, and tool failures observed as evidence.
+    """
+
+    DECLARATIVE = "declarative"
+    HARD_CONSTRAINT = "hard_constraint"
+    REJECTED_OPTION = "rejected_option"
+    TOOL_FAILURE = "tool_failure"
+
+
+def coerce_fact_category(value: Any) -> Any:
+    """Accept enum names or values. Empty input stays the declarative default."""
+    if value is None or value == "":
+        return FactCategory.DECLARATIVE
+    if isinstance(value, FactCategory):
+        return value
+    text = str(value).strip()
+    member = text.upper().replace("-", "_")
+    if member in FactCategory.__members__:
+        return FactCategory[member]
+    lowered = text.lower().replace("-", "_")
+    for item in FactCategory:
+        if item.value == lowered:
+            return item
+    return value
 
 
 class ConflictType(str, Enum):
@@ -72,6 +103,35 @@ class Fact(BaseModel):
     )
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
     metadata: Dict[str, Any] = Field(default_factory=dict)
+    category: FactCategory = Field(
+        default=FactCategory.DECLARATIVE,
+        description="DECLARATIVE, HARD_CONSTRAINT, REJECTED_OPTION, or TOOL_FAILURE",
+    )
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    ttl_seconds: Optional[int] = Field(
+        default=None,
+        ge=0,
+        description="Lifetime in seconds. None means the fact does not expire.",
+    )
+    is_invalidated: bool = Field(
+        default=False,
+        description="Explicitly retired fact. PPR assigns it weight 0.",
+    )
+    source_passage_id: str = Field(
+        default="",
+        description="Immutable M_pas id this fact was compressed from.",
+    )
+
+    @field_validator("category", mode="before")
+    @classmethod
+    def _coerce_category(cls, value: Any) -> Any:
+        return coerce_fact_category(value)
+
+    @model_validator(mode="after")
+    def _bind_source_passage(self) -> "Fact":
+        if not self.source_passage_id and self.passage_ids:
+            self.source_passage_id = self.passage_ids[0]
+        return self
 
     @property
     def fact_key(self) -> str:
@@ -88,6 +148,35 @@ class Fact(BaseModel):
             f"-[{self.relation.strip().lower()}]->"
             f"({self.tail_type.strip().lower()})"
         )
+
+    def is_expired(self, as_of: datetime) -> bool:
+        """True when ``as_of`` is at or past ``created_at + ttl_seconds``."""
+        if self.ttl_seconds is None:
+            return False
+        created = self.created_at
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        moment = as_of if as_of.tzinfo is not None else as_of.replace(tzinfo=timezone.utc)
+        deadline = created.astimezone(timezone.utc) + timedelta(seconds=int(self.ttl_seconds))
+        return moment >= deadline
+
+    def is_suppressed(self, as_of: datetime) -> bool:
+        return self.is_invalidated or self.is_expired(as_of)
+
+    def graph_properties(self) -> Dict[str, Any]:
+        created = self.created_at
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        return {
+            "head": self.head_entity,
+            "relation": self.relation,
+            "tail": self.tail_entity,
+            "category": self.category.value,
+            "created_at": created.astimezone(timezone.utc).isoformat(),
+            "ttl_seconds": self.ttl_seconds,
+            "is_invalidated": self.is_invalidated,
+            "source_passage_id": self.source_passage_id,
+        }
 
 
 class Passage(BaseModel):
@@ -138,6 +227,8 @@ class GlobalMemoryState(BaseModel):
             existing = self.facts[fact.fact_key]
             existing.passage_ids = list(set(existing.passage_ids + fact.passage_ids))
             existing.confidence = max(existing.confidence, fact.confidence)
+            if not existing.source_passage_id:
+                existing.source_passage_id = fact.source_passage_id
             return existing
 
         self.facts[fact.fact_key] = fact
@@ -146,3 +237,27 @@ class GlobalMemoryState(BaseModel):
     def add_passage(self, passage: Passage) -> Passage:
         self.passages[passage.id] = passage
         return passage
+
+    def get_fact(self, fact_id: str) -> Fact:
+        """Resolve a fact by ``fact_key`` or ``fact_id``."""
+        if fact_id in self.facts:
+            return self.facts[fact_id]
+        for fact in self.facts.values():
+            if fact.fact_id == fact_id or fact.fact_key == fact_id:
+                return fact
+        raise KeyError(fact_id)
+
+    def get_raw_passage(self, passage_id: str) -> Passage:
+        """Return the immutable M_pas passage. Raises KeyError when it is missing."""
+        try:
+            return self.passages[passage_id]
+        except KeyError as exc:
+            raise KeyError(f"M_pas has no passage {passage_id}") from exc
+
+    def expand_fact_evidence(self, fact_id: str) -> str:
+        """Drill from an M_fac fact back to the exact M_pas text it was written from."""
+        fact = self.get_fact(fact_id)
+        passage_id = fact.source_passage_id or (fact.passage_ids[0] if fact.passage_ids else "")
+        if not passage_id:
+            raise KeyError(f"fact {fact_id} has no source passage in M_pas")
+        return self.get_raw_passage(passage_id).text
