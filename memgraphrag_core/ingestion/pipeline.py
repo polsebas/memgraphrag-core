@@ -106,6 +106,9 @@ class IngestionPipeline:
                 report["errors"].append(
                     {"passage_id": passage.id, "error": str(exc)}
                 )
+                self.memory_state.record_failed_attempt(
+                    str(exc), passage_id=passage.id
+                )
                 continue
 
             for schema in extraction.schemas:
@@ -188,6 +191,9 @@ class IngestionPipeline:
         )
         accepted = self.memory_state.add_fact(fact)
         if accepted is None:
+            self.memory_state.record_rejection(
+                fact, passage_id, reason="schema_below_tau"
+            )
             return None
         await self._sync_accepted_fact(accepted)
         return accepted

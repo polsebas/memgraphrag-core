@@ -82,7 +82,11 @@ class IndexingOrchestrator:
                         GraphNode(id=f"pas_{passage.id}", label=NODE_PASSAGE)
                     )
 
-            extraction = await self.extractor.extract(passage)
+            try:
+                extraction = await self.extractor.extract(passage)
+            except Exception as exc:
+                self.memory.record_failed_attempt(str(exc), passage_id=passage.id)
+                raise
             candidates = self.extractor.triples_to_facts(extraction.triples, passage.id)
 
             for fact in candidates:
@@ -110,6 +114,9 @@ class IndexingOrchestrator:
                 if accepted is None:
                     report.facts_rejected_by_tau += 1
                     report.rejected_triples.append(fact)
+                    self.memory.record_rejection(
+                        fact, passage.id, reason="schema_below_tau"
+                    )
                     continue
 
                 report.facts_accepted += 1

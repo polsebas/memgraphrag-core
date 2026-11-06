@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Mapping, Optional, Set
 
 from pydantic import BaseModel, Field
@@ -62,6 +63,14 @@ class RetrievalResult(BaseModel):
         default_factory=list,
         description="Direct M_pas hits that no accepted fact cites",
     )
+    process_records: List[Any] = Field(
+        default_factory=list,
+        description="Process events judged applicable at as_of (MemDev-Bench)",
+    )
+    applicability_as_of: Optional[datetime] = Field(
+        default=None,
+        description="Instant used to judge process-record TTL windows",
+    )
 
 
 class MemoryGuidedRetriever:
@@ -107,7 +116,11 @@ class MemoryGuidedRetriever:
         self.layer_weights = self.ppr_calculator.layer_weights
         self.alpha_hybrid = self.reranker.alpha_hybrid
 
-    async def retrieve(self, query: str) -> RetrievalResult:
+    async def retrieve(
+        self, query: str, *, as_of: Optional[datetime] = None
+    ) -> RetrievalResult:
+        moment = as_of or datetime.now(timezone.utc)
+        applicable = self.memory_state.applicable_process_records(moment)
         pas_k = max(5, self.top_k_passages, self.direct_pas_k)
         ont_hits, fac_hits, pas_hits = await asyncio.gather(
             self.vector_store.search_similarity(query, k=5, namespace=LAYER_M_ONT),
@@ -126,7 +139,9 @@ class MemoryGuidedRetriever:
             alpha=self.alpha_ppr,
         )
         if not ppr_scores:
-            return await self._execute_vector_fallback(query, pas_hits, direct_passages)
+            return await self._execute_vector_fallback(
+                query, pas_hits, direct_passages, applicable, moment
+            )
 
         fact_vec = {h.id: h.score for h in fac_hits if h.score > 0.0}
         pas_vec = {h.id: h.score for h in pas_hits if h.score > 0.0}
@@ -222,6 +237,8 @@ class MemoryGuidedRetriever:
             hybrid_scores=hybrid_scores,
             direct_passages=direct_passages,
             writer_omitted_passage_ids=omitted_ids,
+            process_records=applicable,
+            applicability_as_of=moment,
         )
 
     async def _execute_vector_fallback(
@@ -229,6 +246,8 @@ class MemoryGuidedRetriever:
         query: str,
         pas_hits: List[VectorSearchResult],
         direct_passages: Optional[List[Passage]] = None,
+        process_records: Optional[List[Any]] = None,
+        as_of: Optional[datetime] = None,
     ) -> RetrievalResult:
         hits = pas_hits or await self.vector_store.search_similarity(
             query, k=max(self.top_k_passages, self.direct_pas_k), namespace=LAYER_M_PAS
@@ -256,6 +275,8 @@ class MemoryGuidedRetriever:
             hybrid_scores={},
             direct_passages=direct,
             writer_omitted_passage_ids=omitted_ids,
+            process_records=list(process_records or []),
+            applicability_as_of=as_of,
         )
 
     @staticmethod

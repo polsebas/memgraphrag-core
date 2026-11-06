@@ -110,6 +110,8 @@ class GlobalMemoryState(BaseModel):
     ontologies: Dict[str, Schema] = Field(default_factory=dict)
     facts: Dict[str, Fact] = Field(default_factory=dict)
     passages: Dict[str, Passage] = Field(default_factory=dict)
+    # Process log is not a fourth paper layer. Rejected triples stay out of M_fac.
+    process_log: Dict[str, Any] = Field(default_factory=dict)
 
     def register_schema_candidate(
         self, head_type: str, relation: str, tail_type: str
@@ -138,11 +140,86 @@ class GlobalMemoryState(BaseModel):
             existing = self.facts[fact.fact_key]
             existing.passage_ids = list(set(existing.passage_ids + fact.passage_ids))
             existing.confidence = max(existing.confidence, fact.confidence)
+            self.expire_rejections(existing.fact_key)
             return existing
 
         self.facts[fact.fact_key] = fact
+        self.expire_rejections(fact.fact_key)
         return fact
 
     def add_passage(self, passage: Passage) -> Passage:
         self.passages[passage.id] = passage
         return passage
+
+    def add_process_record(self, record: Any) -> Any:
+        from memgraphrag_core.domain.process_memory import add_process_record
+
+        return add_process_record(self, record)
+
+    def record_failed_attempt(
+        self,
+        summary: str,
+        *,
+        passage_id: Optional[str] = None,
+        ttl_seconds: Optional[float] = None,
+        valid_from: Optional[datetime] = None,
+    ) -> Any:
+        from memgraphrag_core.domain.process_memory import record_failed_attempt
+
+        return record_failed_attempt(
+            self,
+            summary,
+            passage_id=passage_id,
+            ttl_seconds=ttl_seconds,
+            valid_from=valid_from,
+        )
+
+    def record_rejection(
+        self,
+        fact: Fact,
+        passage_id: str,
+        *,
+        reason: str,
+        ttl_seconds: Optional[float] = None,
+        valid_from: Optional[datetime] = None,
+    ) -> Any:
+        from memgraphrag_core.domain.process_memory import record_rejection
+
+        return record_rejection(
+            self,
+            fact,
+            passage_id,
+            reason=reason,
+            ttl_seconds=ttl_seconds,
+            valid_from=valid_from,
+        )
+
+    def record_negative_constraint(
+        self,
+        constraint: str,
+        *,
+        passage_ids: Optional[List[str]] = None,
+        ttl_seconds: Optional[float] = None,
+        valid_from: Optional[datetime] = None,
+    ) -> Any:
+        from memgraphrag_core.domain.process_memory import record_negative_constraint
+
+        return record_negative_constraint(
+            self,
+            constraint,
+            passage_ids=passage_ids,
+            ttl_seconds=ttl_seconds,
+            valid_from=valid_from,
+        )
+
+    def expire_rejections(
+        self, fact_key: str, *, as_of: Optional[datetime] = None
+    ) -> None:
+        from memgraphrag_core.domain.process_memory import expire_rejections
+
+        expire_rejections(self, fact_key, as_of=as_of)
+
+    def applicable_process_records(self, as_of: Optional[datetime] = None) -> List[Any]:
+        from memgraphrag_core.domain.process_memory import applicable_process_records
+
+        return applicable_process_records(self, as_of)

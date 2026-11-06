@@ -120,6 +120,12 @@ class ResolverAgent:
                 touched.append(survivor.fact_key)
 
         for key in remove:
+            discarded = memory.facts.get(key)
+            if discarded is not None:
+                passage_id = discarded.passage_ids[0] if discarded.passage_ids else ""
+                memory.record_rejection(
+                    discarded, passage_id, reason="resolution_discard"
+                )
             memory.facts.pop(key, None)
             touched.append(key)
 

@@ -18,6 +18,12 @@ from memgraphrag_core.domain.models import (
     Passage,
     Schema,
 )
+from memgraphrag_core.domain.process_memory import (
+    ApplicabilityVerdict,
+    ApplicabilityWindow,
+    ProcessKind,
+    ProcessRecord,
+)
 
 __all__ = [
     "EDGE_EVIDENCE_IN",
@@ -31,9 +37,13 @@ __all__ = [
     "NODE_FACT",
     "NODE_PASSAGE",
     "NODE_SCHEMA",
+    "ApplicabilityVerdict",
+    "ApplicabilityWindow",
     "ConflictType",
     "Fact",
     "GlobalMemoryState",
     "Passage",
+    "ProcessKind",
+    "ProcessRecord",
     "Schema",
 ]
