@@ -1,5 +1,10 @@
 """Memory-guided PPR retrieval engine."""
 
+from memgraphrag_core.retrieval.context_pruner import (
+    PruneDecision,
+    PruneReason,
+    SelectiveContextPruner,
+)
 from memgraphrag_core.retrieval.direct_passage_access import (
     cited_passage_ids,
     merge_writer_omitted,
@@ -13,8 +18,11 @@ __all__ = [
     "HybridReranker",
     "LayeredPPRCalculator",
     "MemoryGuidedRetriever",
+    "PruneDecision",
+    "PruneReason",
     "RankedItem",
     "RetrievalResult",
+    "SelectiveContextPruner",
     "cited_passage_ids",
     "merge_writer_omitted",
     "select_direct_passages",

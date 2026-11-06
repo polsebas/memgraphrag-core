@@ -19,6 +19,10 @@ from memgraphrag_core.domain.models import (
 )
 from memgraphrag_core.interfaces.graph_store import BaseGraphStore, GraphEdge, GraphNode
 from memgraphrag_core.interfaces.vector_store import BaseVectorStore, VectorSearchResult
+from memgraphrag_core.retrieval.context_pruner import (
+    PruneDecision,
+    SelectiveContextPruner,
+)
 from memgraphrag_core.retrieval.direct_passage_access import (
     cited_passage_ids,
     merge_writer_omitted,
@@ -71,6 +75,10 @@ class RetrievalResult(BaseModel):
         default=None,
         description="Instant used to judge process-record TTL windows",
     )
+    prune_decisions: List[PruneDecision] = Field(
+        default_factory=list,
+        description="Selective context-pruning judgments (DiscernMem)",
+    )
 
 
 class MemoryGuidedRetriever:
@@ -90,6 +98,8 @@ class MemoryGuidedRetriever:
         direct_pas_k: int = 5,
         ppr_calculator: Optional[LayeredPPRCalculator] = None,
         reranker: Optional[HybridReranker] = None,
+        context_pruner: Optional[SelectiveContextPruner] = None,
+        enable_context_pruning: bool = True,
     ) -> None:
         self.memory_state = memory_state
         self.graph_store = graph_store
@@ -115,6 +125,12 @@ class MemoryGuidedRetriever:
         self.reranker = reranker or HybridReranker(alpha_hybrid=alpha_hybrid)
         self.layer_weights = self.ppr_calculator.layer_weights
         self.alpha_hybrid = self.reranker.alpha_hybrid
+        if context_pruner is not None:
+            self.context_pruner: Optional[SelectiveContextPruner] = context_pruner
+        elif enable_context_pruning:
+            self.context_pruner = SelectiveContextPruner()
+        else:
+            self.context_pruner = None
 
     async def retrieve(
         self, query: str, *, as_of: Optional[datetime] = None
@@ -203,6 +219,14 @@ class MemoryGuidedRetriever:
             direct_passages,
             cited_passage_ids(self.memory_state.facts),
         )
+        retrieved_facts, retrieved_passages, applicable, prune_decisions = self._apply_pruner(
+            query,
+            retrieved_facts,
+            retrieved_passages,
+            applicable,
+            moment,
+            protected_passage_ids=set(omitted_ids),
+        )
 
         fact_score_by_id = {item.item_id: item.score for item in ranked_facts}
         pas_score_by_id = {item.item_id: item.score for item in ranked_passages}
@@ -239,6 +263,7 @@ class MemoryGuidedRetriever:
             writer_omitted_passage_ids=omitted_ids,
             process_records=applicable,
             applicability_as_of=moment,
+            prune_decisions=prune_decisions,
         )
 
     async def _execute_vector_fallback(
@@ -265,6 +290,14 @@ class MemoryGuidedRetriever:
             direct,
             cited_passage_ids(self.memory_state.facts),
         )
+        _facts, merged, kept_records, prune_decisions = self._apply_pruner(
+            query,
+            [],
+            merged,
+            list(process_records or []),
+            as_of,
+            protected_passage_ids=set(omitted_ids),
+        )
         return RetrievalResult(
             query=query,
             passages=merged,
@@ -275,9 +308,32 @@ class MemoryGuidedRetriever:
             hybrid_scores={},
             direct_passages=direct,
             writer_omitted_passage_ids=omitted_ids,
-            process_records=list(process_records or []),
+            process_records=kept_records,
             applicability_as_of=as_of,
+            prune_decisions=prune_decisions,
         )
+
+    def _apply_pruner(
+        self,
+        query: str,
+        facts: List[Fact],
+        passages: List[Passage],
+        process_records: List[Any],
+        as_of: Optional[datetime],
+        *,
+        protected_passage_ids: Set[str],
+    ) -> tuple[List[Fact], List[Passage], List[Any], List[PruneDecision]]:
+        if self.context_pruner is None:
+            return facts, passages, process_records, []
+        pruned = self.context_pruner.prune(
+            query=query,
+            passages=passages,
+            facts=facts,
+            process_records=process_records,
+            as_of=as_of,
+            protected_passage_ids=protected_passage_ids,
+        )
+        return pruned.facts, pruned.passages, list(pruned.process_records), pruned.decisions
 
     @staticmethod
     def _facts_grounded_in_passages(
