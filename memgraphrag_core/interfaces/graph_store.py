@@ -47,6 +47,7 @@ class BaseGraphStore(ABC):
         tol: float = 1e-6,
         relation_weights: Optional[Dict[str, float]] = None,
         bidirectional: bool = False,
+        node_multipliers: Optional[Dict[str, float]] = None,
     ) -> Dict[str, float]:
         """Personalized PageRank over the hierarchical graph.
 
@@ -55,6 +56,8 @@ class BaseGraphStore(ABC):
                 (e.g. ``{"INSTANTIATES": 1.0, "EVIDENCE_IN": 1.2}``).
             bidirectional: If True, treat hierarchical edges as traversable
                 in both directions (useful for ont↔fac↔pas propagation).
+            node_multipliers: Per-node personalization scales. ``0`` prunes the
+                node and its incident edges. Values above 1 boost constraints.
         """
         pass
 

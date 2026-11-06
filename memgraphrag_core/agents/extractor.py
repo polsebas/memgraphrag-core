@@ -48,7 +48,11 @@ class ExtractorAgent:
                     tail_entity=t.tail_entity.strip(),
                     tail_type=t.tail_type.strip(),
                     passage_ids=[passage_id],
+                    source_passage_id=passage_id,
                     confidence=t.confidence,
+                    category=t.category,
+                    ttl_seconds=t.ttl_seconds,
+                    is_invalidated=t.is_invalidated,
                     metadata={"evidence_span": t.evidence_span} if t.evidence_span else {},
                 )
             )

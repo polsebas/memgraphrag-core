@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 import networkx as nx
 import numpy as np
@@ -57,10 +57,12 @@ class NetworkXGraphStore(BaseGraphStore):
         self,
         relation_weights: Optional[Dict[str, float]],
         bidirectional: bool,
+        suppressed_nodes: Optional[Set[str]] = None,
     ) -> Dict[str, List[Tuple[str, float]]]:
         """Build outgoing adjacency list with relation-aware edge weights."""
         adj: Dict[str, List[Tuple[str, float]]] = {nid: [] for nid in self._g.nodes()}
         rel_w = relation_weights or {}
+        suppressed = suppressed_nodes or set()
 
         def edge_weight(edata: dict) -> float:
             relation = str(edata.get("relation", "RELATED"))
@@ -68,6 +70,8 @@ class NetworkXGraphStore(BaseGraphStore):
             return base * float(rel_w.get(relation, 1.0))
 
         for src, tgt, edata in self._g.edges(data=True):
+            if src in suppressed or tgt in suppressed:
+                continue
             w = edge_weight(edata)
             if w <= 0.0:
                 continue
@@ -84,6 +88,7 @@ class NetworkXGraphStore(BaseGraphStore):
         tol: float,
         relation_weights: Optional[Dict[str, float]],
         bidirectional: bool,
+        node_multipliers: Optional[Dict[str, float]] = None,
     ) -> Dict[str, float]:
         """CPU-bound PPR implementation (run via ``asyncio.to_thread``)."""
         if self._g.number_of_nodes() == 0:
@@ -94,16 +99,22 @@ class NetworkXGraphStore(BaseGraphStore):
         index = {nid: i for i, nid in enumerate(nodes)}
 
         personalization = np.zeros(n, dtype=float)
+        scales = node_multipliers or {}
         for nid, w in seed_node_weights.items():
-            if nid in index and w > 0.0:
-                personalization[index[nid]] = w
+            if nid not in index or w <= 0.0:
+                continue
+            scale = float(scales.get(nid, 1.0))
+            if scale <= 0.0:
+                continue
+            personalization[index[nid]] = w * scale
 
         total = float(personalization.sum())
         if total <= 0.0:
             return {}
         personalization /= total
 
-        adj = self._weighted_adjacency(relation_weights, bidirectional)
+        suppressed = {nid for nid, scale in scales.items() if scale <= 0.0}
+        adj = self._weighted_adjacency(relation_weights, bidirectional, suppressed)
         out_strength = {
             nid: sum(w for _, w in neighbors) for nid, neighbors in adj.items()
         }
@@ -138,8 +149,13 @@ class NetworkXGraphStore(BaseGraphStore):
         tol: float = 1e-6,
         relation_weights: Optional[Dict[str, float]] = None,
         bidirectional: bool = False,
+        node_multipliers: Optional[Dict[str, float]] = None,
     ) -> Dict[str, float]:
-        """Personalized PageRank via power iteration (optional edge weights)."""
+        """Personalized PageRank via power iteration (optional edge weights).
+
+        ``node_multipliers`` scales the personalization vector. A multiplier of
+        0 drops that node and every incident edge (TTL / invalidation).
+        """
         return await asyncio.to_thread(
             self._run_ppr_sync,
             seed_node_weights,
@@ -148,6 +164,7 @@ class NetworkXGraphStore(BaseGraphStore):
             tol,
             relation_weights,
             bidirectional,
+            node_multipliers,
         )
 
     async def get_subgraph(

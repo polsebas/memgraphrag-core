@@ -185,6 +185,10 @@ class IngestionPipeline:
             tail_entity=extracted.tail_entity,
             tail_type=extracted.tail_type,
             passage_ids=[passage_id],
+            source_passage_id=passage_id,
+            category=extracted.category,
+            ttl_seconds=extracted.ttl_seconds,
+            is_invalidated=extracted.is_invalidated,
         )
         accepted = self.memory_state.add_fact(fact)
         if accepted is None:
@@ -201,6 +205,8 @@ class IngestionPipeline:
                     "layer": LAYER_M_FAC,
                     "head_type": fact.head_type,
                     "tail_type": fact.tail_type,
+                    "category": fact.category.value,
+                    "source_passage_id": fact.source_passage_id,
                 }
             ],
             namespace=LAYER_M_FAC,
@@ -214,11 +220,7 @@ class IngestionPipeline:
             GraphNode(
                 id=fact_node,
                 label=NODE_FACT,
-                properties={
-                    "head": fact.head_entity,
-                    "relation": fact.relation,
-                    "tail": fact.tail_entity,
-                },
+                properties=fact.graph_properties(),
             )
         )
         # Canonical hierarchy: Schema -INSTANTIATES-> Fact -EVIDENCE_IN-> Passage
