@@ -1,0 +1,181 @@
+{
+  "scenario_id": "okf-agente-viajes-madrid",
+  "source": "OKF-Agente-Viajes",
+  "turns": [
+    {
+      "turn": 1,
+      "role": "user",
+      "text": "El cliente define un viaje familiar a Madrid en noviembre para 4 personas. Salen desde Buenos Aires.",
+      "facts": [
+        {
+          "head_entity": "Cliente",
+          "head_type": "Traveler",
+          "relation": "TRAVELS_TO",
+          "tail_entity": "Madrid",
+          "tail_type": "City",
+          "category": "DECLARATIVE"
+        },
+        {
+          "head_entity": "Cliente",
+          "head_type": "Traveler",
+          "relation": "TRAVELS_WITH",
+          "tail_entity": "4 personas",
+          "tail_type": "Party",
+          "category": "DECLARATIVE"
+        }
+      ]
+    },
+    {
+      "turn": 2,
+      "role": "user",
+      "text": "El cliente fija un tope de presupuesto de USD 4200 para todo el viaje familiar a Madrid. No puede pasarse de ese monto.",
+      "facts": [
+        {
+          "head_entity": "Cliente",
+          "head_type": "Traveler",
+          "relation": "HAS_BUDGET",
+          "tail_entity": "USD 4200",
+          "tail_type": "Money",
+          "category": "HARD_CONSTRAINT"
+        }
+      ]
+    },
+    {
+      "turn": 3,
+      "role": "user",
+      "text": "El cliente prefiere un hotel en el centro de Madrid y pide ver primero opciones con poca espera entre tramos.",
+      "facts": [
+        {
+          "head_entity": "Cliente",
+          "head_type": "Traveler",
+          "relation": "PREFERS_AREA",
+          "tail_entity": "Centro de Madrid",
+          "tail_type": "Area",
+          "category": "DECLARATIVE"
+        }
+      ]
+    },
+    {
+      "turn": 4,
+      "role": "user",
+      "text": "El agente propuso un vuelo con escala en Miami, Estados Unidos. El cliente lo descarto porque dos pasajeros no tienen visa de transito estadounidense.",
+      "facts": [
+        {
+          "head_entity": "Cliente",
+          "head_type": "Traveler",
+          "relation": "REJECTED_ROUTE",
+          "tail_entity": "Miami",
+          "tail_type": "City",
+          "category": "REJECTED_OPTION"
+        }
+      ]
+    },
+    {
+      "turn": 5,
+      "role": "assistant",
+      "text": "El cliente sale de Buenos Aires y acepta revisar vuelos con una escala en Europa, lejos de cualquier aeropuerto de America del Norte.",
+      "facts": [
+        {
+          "head_entity": "Cliente",
+          "head_type": "Traveler",
+          "relation": "DEPARTS_FROM",
+          "tail_entity": "Buenos Aires",
+          "tail_type": "City",
+          "category": "DECLARATIVE"
+        }
+      ]
+    },
+    {
+      "turn": 6,
+      "role": "tool",
+      "text": "La reserva en Hotel Puerta del Sol fallo. La API devolvio el codigo de error HTTP 409: ROOM_UNAVAILABLE. No hay cupo para las fechas pedidas.",
+      "facts": [
+        {
+          "head_entity": "Hotel Puerta del Sol",
+          "head_type": "Hotel",
+          "relation": "RETURNED_ERROR",
+          "tail_entity": "HTTP 409 ROOM_UNAVAILABLE",
+          "tail_type": "ErrorCode",
+          "category": "TOOL_FAILURE"
+        }
+      ]
+    },
+    {
+      "turn": 7,
+      "role": "user",
+      "text": "El cliente pregunta por el clima de Madrid en noviembre, si suele llover y que abrigo conviene llevar.",
+      "facts": []
+    },
+    {
+      "turn": 8,
+      "role": "user",
+      "text": "El cliente consulta la franquicia de equipaje de bodega y si el cochecito entra sin cargo.",
+      "facts": []
+    },
+    {
+      "turn": 9,
+      "role": "user",
+      "text": "El cliente pide cotizar un seguro medico de viaje que cubra pediatria durante la estadia.",
+      "facts": []
+    },
+    {
+      "turn": 10,
+      "role": "user",
+      "text": "El cliente pregunta por el alquiler de autos en Madrid, caja automatica y silla para ninos.",
+      "facts": []
+    },
+    {
+      "turn": 11,
+      "role": "user",
+      "text": "El cliente charla sobre restaurantes con menu infantil cerca de la plaza y sobre una tarjeta de transporte semanal.",
+      "facts": []
+    },
+    {
+      "turn": 12,
+      "role": "user",
+      "text": "El cliente pide mover la salida 3 dias despues y solicita la ruta mas economica disponible.",
+      "facts": [
+        {
+          "head_entity": "Cliente",
+          "head_type": "Traveler",
+          "relation": "MOVES_DEPARTURE",
+          "tail_entity": "3 dias despues",
+          "tail_type": "Schedule",
+          "category": "DECLARATIVE"
+        }
+      ]
+    }
+  ],
+  "queries": [
+    {
+      "id": "miami_rejection",
+      "kind": "process",
+      "text": "Por que se descarto la ruta con escala en Miami?",
+      "needles": ["visa", "miami"]
+    },
+    {
+      "id": "hotel_409",
+      "kind": "process",
+      "text": "Que codigo de error devolvio el Hotel Puerta del Sol?",
+      "needles": ["409", "room_unavailable"]
+    },
+    {
+      "id": "budget_cap",
+      "kind": "control",
+      "text": "Cual es el presupuesto maximo del viaje a Madrid?",
+      "needles": ["4200"]
+    },
+    {
+      "id": "party_size",
+      "kind": "control",
+      "text": "Cuantas personas viajan en el grupo familiar?",
+      "needles": ["4 personas"]
+    },
+    {
+      "id": "us_layover_after_date_change",
+      "kind": "constraint",
+      "text": "El cliente pide mover la salida 3 dias y la ruta mas economica. Conviene reofrecer un vuelo con escala en Estados Unidos?",
+      "block_if_any": ["visa", "miami"]
+    }
+  ]
+}

@@ -32,6 +32,8 @@ from memgraphrag_core.retrieval.ppr_engine import (
     DEFAULT_LAYER_WEIGHTS,
     DEFAULT_RELATION_WEIGHTS,
     LayeredPPRCalculator,
+    exclusive_suppressed_passages,
+    suppressed_fact_keys,
 )
 from memgraphrag_core.retrieval.reranker import HybridReranker
 
@@ -132,6 +134,14 @@ class MemoryGuidedRetriever:
         else:
             self.context_pruner = None
 
+    def get_raw_passage(self, passage_id: str) -> Passage:
+        """Read one immutable passage from M_pas."""
+        return self.memory_state.get_raw_passage(passage_id)
+
+    def expand_fact_evidence(self, fact_id: str) -> str:
+        """Return the exact M_pas text a compressed M_fac fact was written from."""
+        return self.memory_state.expand_fact_evidence(fact_id)
+
     async def retrieve(
         self, query: str, *, as_of: Optional[datetime] = None
     ) -> RetrievalResult:
@@ -153,11 +163,17 @@ class MemoryGuidedRetriever:
             fac_hits,
             pas_hits,
             alpha=self.alpha_ppr,
+            memory=self.memory_state,
+            query=query,
+            as_of=as_of,
         )
         if not ppr_scores:
             return await self._execute_vector_fallback(
                 query, pas_hits, direct_passages, applicable, moment
             )
+
+        suppressed = suppressed_fact_keys(self.memory_state, as_of)
+        hidden_passages = exclusive_suppressed_passages(self.memory_state, as_of)
 
         fact_vec = {h.id: h.score for h in fac_hits if h.score > 0.0}
         pas_vec = {h.id: h.score for h in pas_hits if h.score > 0.0}
@@ -177,14 +193,22 @@ class MemoryGuidedRetriever:
             fact_vec.setdefault(fkey, 0.0)
         for pid in pas_ppr:
             pas_vec.setdefault(pid, 0.0)
+        for key in suppressed:
+            fact_vec.pop(key, None)
+            fact_ppr.pop(key, None)
+        for pid in hidden_passages:
+            pas_vec.pop(pid, None)
+            pas_ppr.pop(pid, None)
 
         ranked_facts = self.reranker.fuse(fact_vec, fact_ppr)
         ranked_passages = self.reranker.fuse(pas_vec, pas_ppr)
 
         retrieved_facts: List[Fact] = []
         for item in ranked_facts:
-            if item.item_id in self.memory_state.facts:
-                retrieved_facts.append(self.memory_state.facts[item.item_id])
+            fact = self.memory_state.facts.get(item.item_id)
+            if fact is None or fact.fact_key in suppressed:
+                continue
+            retrieved_facts.append(fact)
             if len(retrieved_facts) >= self.top_k_facts:
                 break
 
@@ -192,6 +216,8 @@ class MemoryGuidedRetriever:
         seen_passage_ids: Set[str] = set()
         for item in ranked_passages:
             if item.item_id in self.memory_state.passages and item.item_id not in seen_passage_ids:
+                if item.item_id in hidden_passages:
+                    continue
                 retrieved_passages.append(self.memory_state.passages[item.item_id])
                 seen_passage_ids.add(item.item_id)
             if len(retrieved_passages) >= self.top_k_passages:
@@ -203,6 +229,8 @@ class MemoryGuidedRetriever:
             for fact in retrieved_facts:
                 for pid in fact.passage_ids:
                     if pid in self.memory_state.passages and pid not in seen_passage_ids:
+                        if pid in hidden_passages:
+                            continue
                         retrieved_passages.append(self.memory_state.passages[pid])
                         seen_passage_ids.add(pid)
                     if len(retrieved_passages) >= self.top_k_passages:

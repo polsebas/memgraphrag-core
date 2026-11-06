@@ -157,6 +157,9 @@ class EntityResolver:
                     relation=fact.relation,
                     tail_entity=tail,
                     tail_type=fact.tail_type,
+                    category=fact.category,
+                    ttl_seconds=fact.ttl_seconds,
+                    is_invalidated=fact.is_invalidated,
                 )
             )
         return resolved
