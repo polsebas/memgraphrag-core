@@ -7,6 +7,7 @@ import them explicitly from ``memgraphrag_core.agents`` / ``memgraphrag_core.ind
 from memgraphrag_core.domain.models import (
     ConflictType,
     Fact,
+    FactCategory,
     GlobalMemoryState,
     Passage,
     Schema,
@@ -16,6 +17,7 @@ from memgraphrag_core.retrieval.retriever import MemoryGuidedRetriever, Retrieva
 __all__ = [
     "ConflictType",
     "Fact",
+    "FactCategory",
     "GlobalMemoryState",
     "MemoryGuidedRetriever",
     "Passage",
