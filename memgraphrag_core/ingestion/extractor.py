@@ -107,6 +107,9 @@ class LLMExtractor:
                 relation=to_upper_snake(f.relation),
                 tail_entity=f.tail_entity.strip(),
                 tail_type=to_pascal_case(f.tail_type),
+                category=f.category,
+                ttl_seconds=f.ttl_seconds,
+                is_invalidated=f.is_invalidated,
             )
             for f in result.facts
         ]
